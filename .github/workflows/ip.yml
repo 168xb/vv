@@ -1,40 +1,29 @@
-name: IP Address
+name: IP Address Update
 
 on:
   schedule:
-    - cron: '0 3 * * *'  # 每天UTC时间2点运行（相当于北京时间上午11点）
-  workflow_dispatch:  # 允许手动触发
+    - cron: '0 3 * * *'
+  workflow_dispatch:
 
 jobs:
-  download:
+  update:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0  # 需要获取完整历史记录才能推送
+    - uses: actions/checkout@v4
     
-    - name: Set up Python
-      uses: actions/setup-python@v4
+    - uses: actions/setup-python@v4
       with:
         python-version: '3.10'
         
-    - name: Install dependencies
-      run: |
-        pip install requests
-        sudo apt-get update
-        sudo apt-get install -y yt-dlp sed nmap
+    - run: pip install requests
         
-    - name: Run download scripts
-      run: |
-        python py/zbip.py
+    - run: python py/zbip.py
         
-    - name: 更新组播地址
+    - name: Commit and push changes
       run: |
-        git pull
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
+        git config --global user.email "action@github.com"
+        git config --global user.name "GitHub Action"
         git add .
-        git commit -m "更新组播地址"
+        git commit -m "自动更新组播地址"
         git push

@@ -71,6 +71,8 @@ def multicast_province(config_file):
     
     # 确保ip目录存在
     os.makedirs('ip', exist_ok=True)
+    # 确保vv目录存在
+    os.makedirs('vv', exist_ok=True)
     
     configs = sorted(set(read_config(config_file)))
     print(f"读取完成，共需扫描 {len(configs)}组")
@@ -84,7 +86,7 @@ def multicast_province(config_file):
         all_ip_ports = sorted(set(all_ip_ports))
         print(f"\n{province} 扫描完成，获取有效ip_port共：{len(all_ip_ports)}个\n{all_ip_ports}\n")
         
-        # 写入当前扫描结果
+        # 写入当前扫描结果到ip目录
         with open(f"ip/{province}_ip.txt", 'w', encoding='utf-8') as f:
             f.write('\n'.join(all_ip_ports))
         
@@ -123,7 +125,8 @@ def multicast_province(config_file):
                     output.append(f"{province}-组播{line_num},#genre#\n")
                     output.extend(tem_channels.replace("ipipip", f"{ip}"))
             
-            with open(f"组播_{province}.txt", 'w', encoding='utf-8') as f:
+            # 将组播文件写入vv目录
+            with open(f"vv/组播_{province}.txt", 'w', encoding='utf-8') as f:
                 f.writelines(output)
         else:
             print(f"缺少模板文件: {template_file}")
@@ -131,14 +134,15 @@ def multicast_province(config_file):
         print(f"\n{province} 扫描完成，未扫描到有效ip_port")
 
 def main():
-    # 确保ip目录存在
+    # 确保ip和vv目录存在
     os.makedirs('ip', exist_ok=True)
+    os.makedirs('vv', exist_ok=True)
     
     for config_file in glob.glob(os.path.join('ip', '*_config.txt')):
         multicast_province(config_file)
     
     file_contents = []
-    for file_path in glob.glob('组播_*.txt'):
+    for file_path in glob.glob('vv/组播_*.txt'):
         with open(file_path, 'r', encoding="utf-8") as f:
             content = f.read()
             file_contents.append(content)
@@ -146,12 +150,13 @@ def main():
     now = datetime.datetime.now(datetime.UTC) + datetime.timedelta(hours=8)
     current_time = now.strftime("%Y/%m/%d %H:%M")
     
-    with open("zubo_all.txt", "w", encoding="utf-8") as f:
+    # 将汇总文件写入vv目录
+    with open("vv/zubo_all.txt", "w", encoding="utf-8") as f:
         f.write(f"{current_time}更新,#genre#\n")
         f.write(f"浙江卫视,http://ali-m-l.cztv.com/channels/lantian/channel001/1080p.m3u8\n")
         f.write('\n'.join(file_contents))
     
-    print(f"组播地址获取完成")
+    print(f"组播地址获取完成，结果已保存到vv目录")
 
 if __name__ == "__main__":
     main()

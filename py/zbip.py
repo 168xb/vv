@@ -4,12 +4,9 @@ from urllib.parse import urlparse
 
 # 要下载的文件列表
 file_urls = [
-    "https://raw.githubusercontent.com/q1017673817/iptvz/main/ip/湖北电信_config.txt",
-    "https://raw.githubusercontent.com/q1017673817/iptvz/main/ip/福建电信_config.txt",
-    "https://raw.githubusercontent.com/q1017673817/iptvz/main/ip/湖南电信_config.txt",
-    "https://raw.githubusercontent.com/q1017673817/iptvz/main/ip/四川电信_config.txt",
-    "https://raw.githubusercontent.com/q1017673817/iptvz/main/ip/江西电信_config.txt",
-    "https://raw.githubusercontent.com/q1017673817/iptvz/main/ip/上海电信_config.txt"
+    "https://zb.wxwb.dpdns.org/ip/江苏_config.txt",
+    "https://zb.wxwb.dpdns.org/ip/浙江_config.txt",
+    "https://raw.githubusercontent.com/q1017673817/iptvz/main/ip/四川电信_config.txt"
 ]
 
 # 本地存储目录

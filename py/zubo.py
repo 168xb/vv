@@ -126,7 +126,7 @@ def multicast_province(config_file):
                     output.extend(tem_channels.replace("ipipip", f"{ip}"))
             
             # 将组播文件写入vv目录
-            with open(f"vv/组播_{province}.txt", 'w', encoding='utf-8') as f:
+            with open(f"vv/zubo_{province}.txt", 'w', encoding='utf-8') as f:
                 f.writelines(output)
         else:
             print(f"缺少模板文件: {template_file}")
@@ -142,7 +142,7 @@ def main():
         multicast_province(config_file)
     
     file_contents = []
-    for file_path in glob.glob('vv/组播_*.txt'):
+    for file_path in glob.glob('vv/zubo_*.txt'):
         with open(file_path, 'r', encoding="utf-8") as f:
             content = f.read()
             file_contents.append(content)

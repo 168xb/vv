@@ -11,6 +11,8 @@ jobs:
     
     steps:
     - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # 需要完整历史记录来推送更改
     
     - uses: actions/setup-python@v4
       with:
@@ -24,6 +26,11 @@ jobs:
       run: |
         git config --global user.email "action@github.com"
         git config --global user.name "GitHub Action"
-        git add .
-        git commit -m "自动更新组播地址"
-        git push
+        # 检查是否有文件变更
+        if [ -n "$(git status --porcelain)" ]; then
+          git add .
+          git commit -m "自动更新组播地址 [skip ci]"
+          git push
+        else
+          echo "没有文件变更，跳过提交"
+        fi

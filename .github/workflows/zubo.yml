@@ -27,7 +27,7 @@ jobs:
       - name: 获取组播源
         run: |
           cd $GITHUB_WORKSPACE
-          python ./zubo.py
+          python py/zubo.py
 
       - name: 更新组播源
         run: |

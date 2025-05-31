@@ -1,4 +1,4 @@
-name: 更新组播源
+name: Multicast Source
 
 on:
   schedule:
@@ -24,16 +24,16 @@ jobs:
         run: |
           pip install -r requirements.txt
 
-      - name: 获取组播源
+      - name: Updated multicast source
         run: |
           cd $GITHUB_WORKSPACE
           python py/zubo.py
 
-      - name: 更新组播源
+      - name: Multicast Source
         run: |
           git pull
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add .
-          git commit -m "更新组播源"
+          git commit -m "Multicast Source"
           git push

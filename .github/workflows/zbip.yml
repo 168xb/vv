@@ -1,0 +1,46 @@
+name: 组播IP地址
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # 每天UTC时间2点运行（相当于北京时间上午10点）
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # 需要获取完整历史记录才能推送
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+        
+    - name: Install dependencies
+      run: |
+        pip install requests
+        sudo apt-get update
+        sudo apt-get install -y yt-dlp sed nmap
+        
+    - name: Run download scripts
+      run: |
+        python zbip.py
+        python zbmain.py
+        
+    - name: 获取组播源
+      run: |
+        chmod +x dizhi.sh
+        bash ./dizhi.sh
+        
+    - name: 更新组播地址
+      run: |
+        git pull
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add .
+        git commit -m "更新组播地址"
+        git push

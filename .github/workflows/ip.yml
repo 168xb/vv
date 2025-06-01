@@ -10,11 +10,21 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout private repository
+      uses: actions/checkout@v4
       with:
         repository: 168xb/zubo  # 替换为你的私有仓库
-        token: ${{ secrets.PRIVATE_REPO_TOKEN }}  # 需要创建一个有权限访问私有仓库的token
-        path: private-repo  # 克隆到子目录
+        token: ${{ secrets.PRIVATE_REPO_TOKEN }}  # 需要有访问私有仓库权限的token
+        path: private-repo
+        fetch-depth: 0  # 需要完整历史记录来推送更改
+        
+    - name: Verify repository access
+      working-directory: private-repo
+      run: |
+        if [ ! -d ".git" ]; then
+          echo "错误：无法访问私有仓库"
+          exit 1
+        fi
         
     - uses: actions/setup-python@v4
       with:
@@ -22,18 +32,27 @@ jobs:
         
     - run: pip install requests
         
-    - run: python py/zbip.py > private-repo/tv  # 将输出重定向到私有仓库的tv文件
+    - name: Run script and update file
+      run: |
+        python py/zbip.py > private-repo/tv
+        echo "文件内容已更新:"
+        cat private-repo/tv
         
-    - name: Commit and push changes to private repo
+    - name: Commit and push changes
       working-directory: private-repo
       run: |
         git config --global user.email "action@github.com"
         git config --global user.name "GitHub Action"
+        git config --global --add safe.directory /github/workspace/private-repo
+        
         # 检查是否有文件变更
         if [ -n "$(git status --porcelain)" ]; then
+          echo "检测到文件变更，准备提交..."
           git add tv
-          git commit -m "Update IP address in tv file"
+          git commit -m "自动更新: $(date +'%Y-%m-%d %H:%M:%S')"
+          git pull --rebase  # 避免冲突
           git push
+          echo "变更已成功推送"
         else
           echo "没有文件变更，跳过提交"
         fi

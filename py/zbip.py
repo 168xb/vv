@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 file_urls = [
     "https://zb.wxwb.dpdns.org/ip/江苏_config.txt",
     "https://zb.wxwb.dpdns.org/ip/浙江_config.txt",
-    "https://zb.wxwb.dpdns.org/ip/重庆_config.txt"
+    "https://zb.wxwb.dpdns.org/ip/湖南_config.txt"
 ]
 
 # 本地存储目录

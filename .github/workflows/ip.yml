@@ -10,64 +10,27 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    # 1. 检出当前仓库（包含zbip.py脚本）
-    - name: Checkout current repository
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
       with:
-        fetch-depth: 0
-        
-    # 2. 检出目标私有仓库
-    - name: Checkout private repository
-      uses: actions/checkout@v4
-      with:
-        repository: 168xb/zubo
-        token: ${{ secrets.PRIVATE_REPO_TOKEN }}
-        path: private-repo
-        fetch-depth: 0
-        
-    # 3. 验证文件结构
-    - name: Verify directory structure
-      run: |
-        echo "当前仓库内容:"
-        ls -la
-        echo "私有仓库内容:"
-        ls -la private-repo/
-        
-        # 确保lv目录存在
-        mkdir -p private-repo/lv
-        
-    # 4. 设置Python环境
+        fetch-depth: 0  # 需要完整历史记录来推送更改
+    
     - uses: actions/setup-python@v4
       with:
         python-version: '3.10'
         
-    # 5. 安装依赖
     - run: pip install requests
         
-    # 6. 执行脚本并写入目标文件
-    - name: Run script and save output
-      run: |
-        # 清空并写入文件
-        python py/zbip.py > private-repo/lv/tv
-        echo "文件内容已更新:"
-        cat private-repo/lv/tv
+    - run: python py/zbip.py
         
-    # 7. 提交并推送到私有仓库
     - name: Commit and push changes
-      working-directory: private-repo
       run: |
         git config --global user.email "action@github.com"
         git config --global user.name "GitHub Action"
-        git config --global --add safe.directory /github/workspace/private-repo
-        
-        # 检查变更
+        # 检查是否有文件变更
         if [ -n "$(git status --porcelain)" ]; then
-          echo "检测到文件变更，准备提交..."
-          git add lv/tv
-          git commit -m "自动更新IP地址: $(date +'%Y-%m-%d %H:%M:%S')"
-          git pull --rebase
+          git add .
+          git commit -m "Update address"
           git push
-          echo "变更已成功推送到私有仓库"
         else
           echo "没有文件变更，跳过提交"
         fi

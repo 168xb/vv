@@ -10,19 +10,29 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
+    # 首先检出当前仓库（包含zbip.py）
+    - name: Checkout current repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        
+    # 然后检出私有仓库
     - name: Checkout private repository
       uses: actions/checkout@v4
       with:
-        repository: 168xb/zubo  # 替换为你的私有仓库
-        token: ${{ secrets.PRIVATE_REPO_TOKEN }}  # 需要有访问私有仓库权限的token
+        repository: 168xb/zubo
+        token: ${{ secrets.PRIVATE_REPO_TOKEN }}
         path: private-repo
-        fetch-depth: 0  # 需要完整历史记录来推送更改
+        fetch-depth: 0
         
-    - name: Verify repository access
-      working-directory: private-repo
+    - name: Verify files exist
       run: |
-        if [ ! -d ".git" ]; then
-          echo "错误：无法访问私有仓库"
+        echo "当前目录内容:"
+        ls -la
+        echo "py目录内容:"
+        ls -la py/
+        if [ ! -f "py/zbip.py" ]; then
+          echo "错误：zbip.py文件不存在"
           exit 1
         fi
         
@@ -34,6 +44,11 @@ jobs:
         
     - name: Run script and update file
       run: |
+        # 确保目标文件存在且是普通文件
+        mkdir -p private-repo
+        touch private-repo/tv
+        
+        # 执行脚本并写入文件
         python py/zbip.py > private-repo/tv
         echo "文件内容已更新:"
         cat private-repo/tv
@@ -45,12 +60,11 @@ jobs:
         git config --global user.name "GitHub Action"
         git config --global --add safe.directory /github/workspace/private-repo
         
-        # 检查是否有文件变更
         if [ -n "$(git status --porcelain)" ]; then
           echo "检测到文件变更，准备提交..."
           git add tv
           git commit -m "自动更新: $(date +'%Y-%m-%d %H:%M:%S')"
-          git pull --rebase  # 避免冲突
+          git pull --rebase
           git push
           echo "变更已成功推送"
         else

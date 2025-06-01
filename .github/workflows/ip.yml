@@ -12,7 +12,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
       with:
-        repository: your-private-repo-owner/your-private-repo-name  # 替换为你的私有仓库
+        repository: 168xb/zubo  # 替换为你的私有仓库
         token: ${{ secrets.PRIVATE_REPO_TOKEN }}  # 需要创建一个有权限访问私有仓库的token
         path: private-repo  # 克隆到子目录
         

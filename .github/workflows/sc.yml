@@ -4,6 +4,12 @@ on:
   push:
     paths:
       - 'vv/zubo_*.txt'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for manual run'
+        required: false
+        default: 'Manual trigger'
 
 jobs:
   sync-files:
@@ -30,7 +36,7 @@ jobs:
         # Create target directory if not exists
         mkdir -p private-repo/lv
         # Copy all matching files
-        cp vv/zubo_*.txt private-repo/lv/
+        cp vv/zubo_*.txt private-repo/lv/ || echo "No zubo files to copy"
         # List copied files for logging
         echo "Copied files:"
         ls -la private-repo/lv/
@@ -42,13 +48,18 @@ jobs:
         if git diff-index --quiet HEAD --; then
           echo "No changes to push"
         else
-          git commit -m "Auto-sync zubo files from $GITHUB_REPOSITORY"
+          git commit -m "Auto-sync zubo files from $GITHUB_REPOSITORY (${{ github.event_name == 'workflow_dispatch' && 'Manual run: ' + inputs.reason || 'Auto-triggered' }})"
           git push origin main
         fi
 
     - name: Remove original files
       run: |
-        rm -f vv/zubo_*.txt
-        git add vv/
-        git commit -m "Remove synced zubo files" || echo "No files to remove"
-        git push
+        # Only remove if files were actually copied
+        if [ -n "$(ls private-repo/lv/zubo_*.txt 2>/dev/null)" ]; then
+          rm -f vv/zubo_*.txt
+          git add vv/
+          git commit -m "Remove synced zubo files" || echo "No files to remove"
+          git push
+        else
+          echo "No zubo files found to remove"
+        fi

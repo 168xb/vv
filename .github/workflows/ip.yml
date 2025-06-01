@@ -12,24 +12,27 @@ jobs:
     steps:
     - uses: actions/checkout@v4
       with:
-        fetch-depth: 0  # 需要完整历史记录来推送更改
-    
+        repository: your-private-repo-owner/your-private-repo-name  # 替换为你的私有仓库
+        token: ${{ secrets.PRIVATE_REPO_TOKEN }}  # 需要创建一个有权限访问私有仓库的token
+        path: private-repo  # 克隆到子目录
+        
     - uses: actions/setup-python@v4
       with:
         python-version: '3.10'
         
     - run: pip install requests
         
-    - run: python py/zbip.py
+    - run: python py/zbip.py > private-repo/tv  # 将输出重定向到私有仓库的tv文件
         
-    - name: Commit and push changes
+    - name: Commit and push changes to private repo
+      working-directory: private-repo
       run: |
         git config --global user.email "action@github.com"
         git config --global user.name "GitHub Action"
         # 检查是否有文件变更
         if [ -n "$(git status --porcelain)" ]; then
-          git add .
-          git commit -m "Update address"
+          git add tv
+          git commit -m "Update IP address in tv file"
           git push
         else
           echo "没有文件变更，跳过提交"

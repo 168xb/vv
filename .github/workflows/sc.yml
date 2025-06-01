@@ -1,0 +1,54 @@
+name: Sync Zubo Files to Private Repo
+
+on:
+  push:
+    paths:
+      - 'vv/zubo_*.txt'
+
+jobs:
+  sync-files:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout current repo
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Git config
+      run: |
+        git config --global user.name "GitHub Actions"
+        git config --global user.email "actions@github.com"
+
+    - name: Clone private repository
+      run: |
+        git clone https://${{ secrets.PRIVATE_REPO_TOKEN }}@github.com/168xb/zubo.git private-repo
+      env:
+        GIT_ASKPASS: echo
+
+    - name: Copy files to private repo
+      run: |
+        # Create target directory if not exists
+        mkdir -p private-repo/lv
+        # Copy all matching files
+        cp vv/zubo_*.txt private-repo/lv/
+        # List copied files for logging
+        echo "Copied files:"
+        ls -la private-repo/lv/
+
+    - name: Commit and push to private repo
+      run: |
+        cd private-repo
+        git add lv/
+        if git diff-index --quiet HEAD --; then
+          echo "No changes to push"
+        else
+          git commit -m "Auto-sync zubo files from $GITHUB_REPOSITORY"
+          git push origin main
+        fi
+
+    - name: Remove original files
+      run: |
+        rm -f vv/zubo_*.txt
+        git add vv/
+        git commit -m "Remove synced zubo files" || echo "No files to remove"
+        git push

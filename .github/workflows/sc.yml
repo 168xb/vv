@@ -1,76 +1,75 @@
-name: Sync Zubo Files to Private Repo
+name: Auto Sync and Clean Zubo Files
 
 on:
   push:
     paths:
-      - 'vv/*.txt'
-  workflow_dispatch:
-    inputs:
-      reason:
-        description: 'Reason for manual run'
-        required: false
-        default: 'Manual trigger'
+      - 'vv/zubo_*.txt'  # 严格监控此路径下的文件变化
+  workflow_dispatch:     # 保留手动触发选项
 
 jobs:
-  sync-files:
+  sync-and-clean:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout current repo
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
+      # 第一步：检出当前仓库
+      - name: Checkout current repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 获取完整提交历史用于比较变化
 
-    - name: Verify changed files
-      run: |
-        echo "Changed files in this push:"
-        git diff --name-only HEAD^ HEAD
-        echo "Files matching pattern:"
-        git diff --name-only HEAD^ HEAD -- 'vv/zubo_*.txt'
+      # 第二步：验证文件变化（调试用）
+      - name: Debug changed files
+        run: |
+          echo "检测到变化的文件："
+          git diff --name-only HEAD^ HEAD
+          echo "匹配vv/zubo_*.txt的文件："
+          git diff --name-only HEAD^ HEAD -- 'vv/zubo_*.txt'
 
-    - name: Set up Git config
-      run: |
-        git config --global user.name "GitHub Actions"
-        git config --global user.email "actions@github.com"
+      # 第三步：配置Git身份
+      - name: Setup Git
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
 
-    - name: Clone private repository
-      run: |
-        git clone https://${{ secrets.PRIVATE_REPO_TOKEN }}@github.com/168xb/zubo.git private-repo
-      env:
-        GIT_ASKPASS: echo
+      # 第四步：克隆私有仓库
+      - name: Clone private repo
+        run: |
+          git clone https://${{ secrets.PRIVATE_REPO_TOKEN }}@github.com/168xb/zubo.git private-repo
+        env:
+          GIT_ASKPASS: echo  # 禁用交互式认证
 
-    - name: Copy files to private repo
-      run: |
-        # Create target directory if not exists
-        mkdir -p private-repo/lv
-        # Copy all matching files
-        echo "Files to copy:"
-        ls -la vv/zubo_*.txt || echo "No source files found"
-        cp vv/zubo_*.txt private-repo/lv/ || echo "No zubo files to copy"
-        # List copied files for logging
-        echo "Copied files:"
-        ls -la private-repo/lv/
+      # 第五步：复制文件到私库
+      - name: Copy files
+        run: |
+          mkdir -p private-repo/lv
+          echo "准备复制的文件："
+          ls vv/zubo_*.txt || echo "未找到匹配文件"
+          cp -v vv/zubo_*.txt private-repo/lv/  # -v显示复制详情
+          echo "复制后的私库文件："
+          ls private-repo/lv/
 
-    - name: Commit and push to private repo
-      run: |
-        cd private-repo
-        git add lv/
-        if git diff-index --quiet HEAD --; then
-          echo "No changes to push"
-        else
-          git commit -m "Auto-sync zubo files from $GITHUB_REPOSITORY (${{ github.event_name == 'workflow_dispatch' && format('Manual run: {0}', inputs.reason) || 'Auto-triggered by push' }})"
-          git push origin main
-        fi
+      # 第六步：提交到私库
+      - name: Push to private repo
+        run: |
+          cd private-repo
+          git add lv/
+          if ! git diff-index --quiet HEAD --; then
+            git commit -m "自动同步文件 from ${GITHUB_REPOSITORY}"
+            git push origin main
+            echo "已推送变更到私库"
+          else
+            echo "无新变更需要推送"
+          fi
 
-    - name: Remove original files
-      run: |
-        # Only remove if files were actually copied
-        if [ -n "$(ls private-repo/lv/zubo_*.txt 2>/dev/null)" ]; then
-          echo "Removing original files:"
-          ls -la vv/zubo_*.txt
-          rm -f vv/zubo_*.txt
-          git add vv/
-          git commit -m "Remove synced zubo files" || echo "No files to remove"
-          git push
-        else
-          echo "No zubo files found to remove"
-        fi
+      # 第七步：删除原文件并提交
+      - name: Clean original files
+        run: |
+          if ls vv/zubo_*.txt 1> /dev/null 2>&1; then
+            echo "正在删除原文件："
+            rm -v vv/zubo_*.txt  # -v显示删除详情
+            git add vv/
+            git commit -m "自动清理已同步的zubo文件"
+            git push
+            echo "已删除原文件并提交"
+          else
+            echo "没有找到可删除的原文件"
+          fi

@@ -65,5 +65,5 @@ jobs:
         # 删除并提交
         rm -v vv/zubo_*.txt
         git add vv/
-        git commit -m "移除已同步文件"
+        git commit -m "Delete synced files"
         git push

@@ -20,6 +20,13 @@ jobs:
       with:
         fetch-depth: 0
 
+    - name: Verify changed files
+      run: |
+        echo "Changed files in this push:"
+        git diff --name-only HEAD^ HEAD
+        echo "Files matching pattern:"
+        git diff --name-only HEAD^ HEAD -- 'vv/zubo_*.txt'
+
     - name: Set up Git config
       run: |
         git config --global user.name "GitHub Actions"
@@ -36,6 +43,8 @@ jobs:
         # Create target directory if not exists
         mkdir -p private-repo/lv
         # Copy all matching files
+        echo "Files to copy:"
+        ls -la vv/zubo_*.txt || echo "No source files found"
         cp vv/zubo_*.txt private-repo/lv/ || echo "No zubo files to copy"
         # List copied files for logging
         echo "Copied files:"
@@ -48,7 +57,7 @@ jobs:
         if git diff-index --quiet HEAD --; then
           echo "No changes to push"
         else
-          git commit -m "Auto-sync zubo files from $GITHUB_REPOSITORY (${{ github.event_name == 'workflow_dispatch' && format('Manual run: {0}', inputs.reason) || 'Auto-triggered' }})"
+          git commit -m "Auto-sync zubo files from $GITHUB_REPOSITORY (${{ github.event_name == 'workflow_dispatch' && format('Manual run: {0}', inputs.reason) || 'Auto-triggered by push' }})"
           git push origin main
         fi
 
@@ -56,6 +65,8 @@ jobs:
       run: |
         # Only remove if files were actually copied
         if [ -n "$(ls private-repo/lv/zubo_*.txt 2>/dev/null)" ]; then
+          echo "Removing original files:"
+          ls -la vv/zubo_*.txt
           rm -f vv/zubo_*.txt
           git add vv/
           git commit -m "Remove synced zubo files" || echo "No files to remove"

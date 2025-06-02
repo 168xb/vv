@@ -78,5 +78,5 @@ jobs:
           
           # 提交删除
           git add vv/
-          git commit -m "移除已同步的zubo文件" || echo "无文件可删除"
+          git commit -m "Remove synchronized files" || echo "No files to delete"
           git push

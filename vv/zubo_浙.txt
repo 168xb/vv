@@ -1,0 +1,412 @@
+import eventlet
+eventlet.monkey_patch()
+import time
+import datetime
+from threading import Thread, Lock
+import os
+import re
+from queue import Queue
+import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# 读取文件并设置参数
+def read_config(config_file):
+    ip_configs = []
+    try:
+        with open(config_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    ip_part, port = line.split(':')
+                    a, b, c, d = ip_part.split('.')
+                    ip = f"{a}.{b}.{c}.1"
+                    ip_configs.append((ip, port))
+        return ip_configs
+    except Exception as e:
+        print(f"读取文件错误: {e}")
+        return []
+
+# 发送get请求检测url是否可访问
+def check_ip_port(ip_port, url_end):
+    try:
+        url = f"http://{ip_port}{url_end}"
+        resp = requests.get(url, timeout=2)
+        resp.raise_for_status()
+        if "tsfile" in resp.text or "hls" in resp.text:
+            print(f"{url} 访问成功")
+            return url
+    except:
+        return None
+
+# 多线程检测url，获取有效ip_port
+def scan_ip_port(ip, port, url_end):
+    valid_urls = []
+    a, b, c, d = map(int, ip.split('.'))
+    ip_ports = [f"{a}.{b}.{c}.{x}:{port}" for x in range(1, 256)]
+    with ThreadPoolExecutor(max_workers=100) as executor:
+        futures = {executor.submit(check_ip_port, ip_port, url_end): ip_port for ip_port in ip_ports}
+        for future in as_completed(futures):
+            result = future.result()
+            if result:
+                valid_urls.append(result)
+    return valid_urls    
+
+# 发送GET请求获取JSON文件, 解析JSON文件, 获取频道信息
+def extract_channels(url):
+    hotel_channels = []
+    try:
+        json_url = f"{url}"
+        urls = url.split('/', 3)
+        url_x = f"{urls[0]}//{urls[2]}"
+        if "iptv" in json_url:
+            response = requests.get(json_url, timeout=2)
+            json_data = response.json()
+            for item in json_data['data']:
+                if isinstance(item, dict):
+                    name = item.get('name')
+                    urlx = item.get('url')
+                    if urlx and ("tsfile" in urlx or "hls" in urlx):
+                        urld = f"{url_x}{urlx}" if urlx.startswith('/') else f"{url_x}/{urlx}"
+                        hotel_channels.append((name, urld))
+        elif "ZHGXTV" in json_url:
+            response = requests.get(json_url, timeout=2)
+            json_data = response.content.decode('utf-8')
+            data_lines = json_data.split('\n')
+            for line in data_lines:
+                if "," in line and "hls" in line:
+                    name, channel_url = line.strip().split(',', 1)
+                    parts = channel_url.split('/', 3)
+                    if len(parts) >= 4:
+                        urld = f"{url_x}/{parts[3]}"
+                        hotel_channels.append((name, urld))
+        return hotel_channels
+    except Exception as e:
+        print(f"提取频道时出错({url}): {e}")
+        return []
+
+# 优化后的测速函数
+def speed_test(channels, min_speed=0.3, max_retry=1):
+    """
+    测速函数，筛选国内高质量频道
+    
+    参数:
+        channels: 频道列表，格式为[(频道名称, 频道URL), ...]
+        min_speed: 最低速度要求(MB/s)，默认0.3
+        max_retry: 失败重试次数，默认1次
+    """
+    def show_progress():
+        while checked[0] < total_tasks:
+            progress = checked[0] / total_tasks * 100
+            print(f"\r已测试 {checked[0]}/{total_tasks}，可用频道: {len(results)}个，进度: {progress:.1f}%", end='')
+            time.sleep(1)
+        print("\n测试完成！")
+
+    def worker():
+        while True:
+            channel_name, channel_url = task_queue.get()
+            retry_count = 0
+            success = False
+            
+            while retry_count <= max_retry and not success:
+                try:
+                    # 获取m3u8文件内容
+                    with eventlet.Timeout(3, False):
+                        response = requests.get(channel_url, timeout=2, headers={'Connection': 'close'})
+                        if response.status_code != 200:
+                            raise Exception(f"HTTP {response.status_code}")
+                        lines = response.text.strip().split('\n')
+                    
+                    # 获取第一个ts片段
+                    ts_lists = [line for line in lines if not line.startswith('#') and '.ts' in line]
+                    if not ts_lists:
+                        raise Exception("No TS segments found")
+                    
+                    # 处理相对路径
+                    ts_segment = ts_lists[0]
+                    if not ts_segment.startswith('http'):
+                        if not channel_url.endswith('/'):
+                            channel_url_t = channel_url.rsplit('/', 1)[0] + '/'
+                        else:
+                            channel_url_t = channel_url
+                        ts_url = channel_url_t + ts_segment
+                    else:
+                        ts_url = ts_segment
+                    
+                    temp_file = f"temp_{hash(ts_url)}.ts"
+                    
+                    # 下载测试片段并计算速度
+                    start_time = time.time()
+                    with eventlet.Timeout(5, False):
+                        response = requests.get(ts_url, timeout=3, stream=True, headers={'Connection': 'close'})
+                        if response.status_code != 200:
+                            raise Exception(f"TS HTTP {response.status_code}")
+                        
+                        content_length = int(response.headers.get('content-length', 102400))  # 默认100KB
+                        downloaded = 0
+                        with open(temp_file, 'wb') as f:
+                            for chunk in response.iter_content(1024):
+                                if time.time() - start_time > 5:  # 总超时5秒
+                                    raise Exception("Download timeout")
+                                f.write(chunk)
+                                downloaded += len(chunk)
+                                if downloaded >= content_length:  # 达到内容长度则停止
+                                    break
+                    
+                    # 计算速度
+                    download_time = max(time.time() - start_time, 0.1)  # 最少按0.1秒计算
+                    speed = downloaded / download_time / 1024 / 1024  # MB/s
+                    
+                    # 检查速度和质量
+                    if speed >= min_speed:
+                        result = (channel_name, channel_url, f"{speed:.2f}")
+                        results.append(result)
+                        success = True
+                    
+                    # 清理临时文件
+                    if os.path.exists(temp_file):
+                        os.remove(temp_file)
+                        
+                except Exception as e:
+                    # print(f"\n测试 {channel_name} 出错: {str(e)}")  # 调试用
+                    retry_count += 1
+                    time.sleep(0.5)
+                finally:
+                    if 'response' in locals():
+                        response.close()
+            
+            with lock:
+                checked[0] += 1
+            task_queue.task_done()
+
+    # 初始化变量
+    task_queue = Queue()
+    results = []
+    checked = [0]
+    total_tasks = len(channels) * (max_retry + 1)
+    lock = Lock()
+
+    # 创建并启动工作线程
+    for _ in range(20):  # 20个工作线程
+        Thread(target=worker, daemon=True).start()
+    
+    # 添加任务到队列
+    for channel in channels:
+        task_queue.put(channel)
+    
+    # 启动进度显示线程
+    progress_thread = Thread(target=show_progress, daemon=True)
+    progress_thread.start()
+    
+    # 等待所有任务完成
+    task_queue.join()
+    
+    # 按速度从高到低排序结果
+    results.sort(key=lambda x: float(x[2]), reverse=True)
+    
+    return results
+
+# 替换关键词以规范频道名
+def unify_channel_name(channels_list):
+    new_channels_list = []
+    for name, channel_url, speed in channels_list:
+        # 保留原始处理逻辑
+        name = re.sub(r'CCTV(\d+)台', r'CCTV\1', name)
+        name = name.replace("cctv", "CCTV").replace("中央", "CCTV")
+        name = re.sub(r'高清|超清|超高清|HD|标清|频道|测试|回放|\(|\)', '', name)
+        name = name.replace("-", "").replace(" ", "").replace("PLUS", "+").replace("＋", "+")
+        name = name.replace("K1", "").replace("K2", "").replace("W", "").replace("w", "")
+        
+        # CCTV标准化
+        cctv_mapping = {
+            "CCTV1综合": "CCTV1", "CCTV2财经": "CCTV2", "CCTV3综艺": "CCTV3",
+            "CCTV4国际": "CCTV4", "CCTV4中文国际": "CCTV4", "CCTV5体育": "CCTV5",
+            "CCTV6电影": "CCTV6", "CCTV7军事": "CCTV7", "CCTV8电视剧": "CCTV8",
+            "CCTV9纪录": "CCTV9", "CCTV10科教": "CCTV10", "CCTV11戏曲": "CCTV11",
+            "CCTV12社会与法": "CCTV12", "CCTV13新闻": "CCTV13", "CCTV14少儿": "CCTV14",
+            "CCTV15音乐": "CCTV15", "CCTV16奥林匹克": "CCTV16", "CCTV17农业农村": "CCTV17",
+            "CCTV5+体育赛事": "CCTV5+", "CCTV风云足球": "CCTV足球"
+        }
+        for old, new in cctv_mapping.items():
+            name = name.replace(old, new)
+        
+        # 卫视标准化
+        name = name.replace("上海卫视", "东方卫视").replace("福建东南", "东南卫视")
+        name = name.replace("旅游卫视", "海南卫视").replace("中国教育", "CETV")
+        
+        # 去除多余字符
+        name = re.sub(r'\s+', ' ', name).strip()
+        
+        new_channels_list.append(f"{name},{channel_url}\n")
+    return new_channels_list
+
+# 定义排序函数，提取频道名称中的数字并按数字排序
+def channel_key(channel_name):
+    match = re.search(r'\d+', channel_name)
+    return int(match.group()) if match else float('inf')
+
+# 自定义分组函数
+def classify_channels(input_file, output_file, keywords):
+    keywords_list = [k.strip() for k in keywords.split(',')]
+    pattern = '|'.join(re.escape(keyword) for keyword in keywords_list)
+    extracted_lines = []
+    
+    if not os.path.exists(input_file):
+        print(f"文件不存在: {input_file}")
+        return
+    
+    with open(input_file, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if line and "#genre#" not in line:
+                channel_name = line.split(',')[0] if ',' in line else line
+                if re.search(pattern, channel_name, re.IGNORECASE):
+                    extracted_lines.append(line + '\n')
+    
+    if extracted_lines:
+        with open(output_file, 'w', encoding='utf-8') as out_file:
+            out_file.write(f"{keywords_list[0]},#genre#\n")
+            out_file.writelines(extracted_lines)
+
+# 获取酒店源流程        
+def hotel_iptv(config_file):
+    print(f"开始处理配置文件: {config_file}")
+    ip_configs = list(set(read_config(config_file)))
+    if not ip_configs:
+        print("没有读取到有效的IP配置")
+        return []
+    
+    valid_urls = []
+    configs = []
+    url_ends = ["/iptv/live/1000.json?key=txiptv", "/ZHGXTV/Public/json/live_interface.txt"]
+    
+    for url_end in url_ends:
+        for ip, port in ip_configs:
+            configs.append((ip, port, url_end))
+    
+    print(f"开始扫描IP端口，共 {len(configs)} 个配置...")
+    for ip, port, url_end in configs:
+        urls = scan_ip_port(ip, port, url_end)
+        valid_urls.extend(urls)
+    
+    print(f"扫描完成，获取有效url共：{len(valid_urls)}个")
+    
+    channels = []
+    for valid_url in valid_urls:
+        extracted = extract_channels(valid_url)
+        channels.extend(extracted)
+    
+    print(f"共获取频道：{len(channels)}个\n开始测速...")
+    
+    # 使用优化后的测速函数
+    results = speed_test(channels, min_speed=0.3, max_retry=1)
+    
+    if not results:
+        print("警告: 没有获取到任何有效的频道")
+        return []
+    
+    # 对频道进行排序
+    results.sort(key=lambda x: -float(x[2]))
+    results.sort(key=lambda x: channel_key(x[0]))
+    
+    # 确保输出目录存在
+    os.makedirs('tv', exist_ok=True)
+    
+    # 写入原始结果
+    with open('1.txt', 'w', encoding='utf-8') as f:
+        unified = unify_channel_name(results)
+        f.writelines(unified)
+    
+    print(f"测速完成，有效频道数: {len(results)}")
+    return results
+
+def main():
+    # 确保输出目录存在
+    os.makedirs('tv', exist_ok=True)
+    
+    # 清空旧文件
+    if os.path.exists('tv/jdtv.txt'):
+        os.remove('tv/jdtv.txt')
+    
+    hotel_config_files = ["ip/酒店.ip"]  # 修改为您的实际配置文件路径
+    all_results = []
+    
+    for config_file in hotel_config_files:
+        if os.path.exists(config_file):
+            results = hotel_iptv(config_file)
+            all_results.extend(results)
+        else:
+            print(f"配置文件不存在: {config_file}")
+    
+    if not all_results:
+        print("错误: 没有获取到任何频道，请检查配置和网络")
+        return
+    
+    # 分类处理
+    categories = [
+        ("央视.txt", "央视频道,CCTV,风云剧场,怀旧剧场,第一剧场,兵器,女性,地理,央视文化,风云音乐,CHC"),
+        ("卫视.txt", "卫视频道,卫视"),
+        ("少儿.txt", "少儿频道,少儿,卡通,动漫,炫动"),
+        ("湖南.txt", "湖南频道,湖南,金鹰,潇湘,长沙,南县"),
+        ("广东.txt", "广东频道,广东,客家,广州,珠江"),
+        ("河南.txt", "河南频道,河南,信阳,漯河,郑州,驻马店,平顶山,安阳,武术世界,梨园,南阳"),
+        ("广西.txt", "广西频道,广西,南宁,玉林,桂林,北流"),
+        ("陕西.txt", "陕西频道,陕西,西安"),
+        ("港台.txt", "香港频道,凤凰,香港,明珠台,翡翠台,星河"),
+        ("其他.txt", "其他频道,tsfile")
+    ]
+    
+    for file_name, keywords in categories:
+        classify_channels('1.txt', file_name, keywords)
+    
+    # 合并写入文件
+    file_contents = []
+    now = datetime.datetime.now(datetime.UTC) + datetime.timedelta(hours=8)
+    current_time = now.strftime("%Y/%m/%d %H:%M")
+    
+    # 添加文件头
+    file_contents.append(f"{current_time}更新,#genre#\n")
+    file_contents.append("浙江卫视,http://ali-m-l.cztv.com/channels/lantian/channel001/1080p.m3u8\n")
+    
+    # 添加分类内容
+    for file_name, _ in categories:
+        if os.path.exists(file_name):
+            with open(file_name, 'r', encoding='utf-8') as f:
+                content = f.read()
+                if content.strip():
+                    file_contents.append(content)
+    
+    # 写入最终文件
+    with open('tv/jdtv.txt', 'w', encoding='utf-8') as f:
+        f.writelines(file_contents)
+    
+    # 原始顺序去重
+    with open('tv/jdtv.txt', 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+    
+    unique_lines = []
+    seen = set()
+    for line in lines:
+        line = line.strip()
+        if line and line not in seen:
+            unique_lines.append(line + '\n')
+            seen.add(line)
+    
+    with open('tv/jdtv.txt', 'w', encoding='utf-8') as f:
+        f.writelines(unique_lines)
+    
+    # 移除过程文件
+    temp_files = ['1.txt'] + [f[0] for f in categories]
+    for file in temp_files:
+        if os.path.exists(file):
+            os.remove(file)
+    
+    # 检查最终文件
+    if os.path.exists('tv/jdtv.txt'):
+        with open('tv/jdtv.txt', 'r', encoding='utf-8') as f:
+            line_count = len(f.readlines())
+        print(f"任务完成! 最终文件包含 {line_count} 行数据，保存到 tv/jdtv.txt")
+    else:
+        print("错误: 未能生成最终文件")
+
+if __name__ == "__main__":
+    main()

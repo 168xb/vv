@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 # 要下载的文件列表
 file_urls = [
     "https://zb.wxwb.dpdns.org/ip/江苏_config.txt",
+    "https://zb.wxwb.dpdns.org/ip/广东_config.txt",
     "https://zb.wxwb.dpdns.org/ip/浙江_config.txt"
 ]
 

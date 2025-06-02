@@ -3,7 +3,7 @@ name: Sync Zubo Files to Private Repo
 on:
   push:
     paths:
-      - 'vv/zubo_*.txt'
+      - 'vv/*.txt'
   workflow_dispatch:
     inputs:
       reason:

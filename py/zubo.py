@@ -10,30 +10,26 @@ def read_config(config_file):
     print(f"读取设置文件：{config_file}")
     ip_configs = []
     try:
-        with open(config_file, 'r', encoding='utf-8') as f:
+        with open(config_file, 'r') as f:
             for line_num, line in enumerate(f, 1):
                 if "," in line and not line.startswith("#"):
                     parts = line.strip().split(',')
                     ip_part, port = parts[0].strip().split(':')
                     a, b, c, d = ip_part.split('.')
-                    option = int(parts[1]) 
-                    url_end = "/status" if option >= 10 else "/stat"
-                    ip = f"{a}.{b}.{c}.1" if option % 2 == 0 else f"{a}.{b}.1.1"
+                    if int(parts[1]) == 0:
+                        ip, option, url_end = f"{a}.{b}.{c}.1", 0, "/stat"
+                    elif int(parts[1]) == 1:
+                        ip, option, url_end = f"{a}.{b}.1.1", 1, "/stat"
+                    elif int(parts[1]) == 2:
+                        ip, option, url_end = f"{a}.{b}.{c}.1", 0, "/status"
+                    elif int(parts[1]) == 3:
+                        ip, option, url_end = f"{a}.{b}.1.1", 1, "/status"
                     ip_configs.append((ip, port, option, url_end))
                     print(f"第{line_num}行：http://{ip}:{port}{url_end}添加到扫描列表")
         return ip_configs
     except Exception as e:
         print(f"读取文件错误: {e}")
         return None
-
-def generate_ip_ports(ip, port, option):
-    a, b, c, d = map(int, ip.split('.'))
-    if option == 2 or option == 12:
-        return [f"{a}.{b}.{x}.{y}:{port}" for x in range(c, (c + 8)) for y in range(1,256)]
-    elif option == 0 or option == 10:
-        return [f"{a}.{b}.{c}.{y}:{port}" for y in range(1,256)]
-    else:
-        return [f"{a}.{b}.{x}.{y}:{port}" for x in range(256) for y in range(1,256)]
 
 def check_ip_port(ip_port, url_end):    
     try:
@@ -48,18 +44,18 @@ def check_ip_port(ip_port, url_end):
 
 def scan_ip_port(ip, port, option, url_end):
     def show_progress():
-        while checked[0] < len(ip_ports) and option % 2 == 1:
+        while checked[0] < len(ip_ports) and option == 1:
             print(f"已扫描：{checked[0]}/{len(ip_ports)}, 有效ip_port：{len(valid_ip_ports)}个")
             time.sleep(30)
     
     valid_ip_ports = []
-    ip_ports = generate_ip_ports(ip, port, option)
+    a, b, c, d = map(int, ip.split('.'))
+    ip_ports = [f"{a}.{b}.{x}.{y}:{port}" for x in range(256) for y in range(1,256)] if option == 1 \
+               else [f"{a}.{b}.{c}.{x}:{port}" for x in range(1,256)]
     checked = [0]
+    Thread(target=show_progress, daemon=True).start()
     
-    if option % 2 == 1:
-        Thread(target=show_progress, daemon=True).start()
-    
-    with ThreadPoolExecutor(max_workers=300 if option % 2 == 1 else 100) as executor:
+    with ThreadPoolExecutor(max_workers=300 if option == 1 else 50) as executor:
         futures = {executor.submit(check_ip_port, ip_port, url_end): ip_port for ip_port in ip_ports}
         for future in as_completed(futures):
             result = future.result()
@@ -69,19 +65,16 @@ def scan_ip_port(ip, port, option, url_end):
     return valid_ip_ports
 
 def multicast_province(config_file):
-    # 确保目录存在
-    os.makedirs('ip', exist_ok=True)
-    os.makedirs('vv', exist_ok=True)
-    
     filename = os.path.basename(config_file)
     province = filename.split('_')[0]
     print(f"{'='*25}\n   获取: {province}ip_port\n{'='*25}")
     
+    # 确保ip目录存在
+    os.makedirs('ip', exist_ok=True)
+    # 确保vv目录存在
+    os.makedirs('vv', exist_ok=True)
+    
     configs = sorted(set(read_config(config_file)))
-    if not configs:
-        print("没有有效的配置可扫描")
-        return
-        
     print(f"读取完成，共需扫描 {len(configs)}组")
     all_ip_ports = []
     
@@ -125,12 +118,12 @@ def multicast_province(config_file):
             with open(template_file, 'r', encoding='utf-8') as f:
                 tem_channels = f.read()
             
-            output = []
+            output = [] 
             with open(f"ip/{province}_ip.txt", 'r', encoding='utf-8') as f:
                 for line_num, line in enumerate(f, 1):
                     ip = line.strip()
                     output.append(f"{province}-组播{line_num},#genre#\n")
-                    output.append(tem_channels.replace("ipipip", f"{ip}"))
+                    output.extend(tem_channels.replace("ipipip", f"{ip}"))
             
             # 将组播文件写入vv目录
             with open(f"vv/zubo_{province}.txt", 'w', encoding='utf-8') as f:
@@ -141,10 +134,9 @@ def multicast_province(config_file):
         print(f"\n{province} 扫描完成，未扫描到有效ip_port")
 
 def main():
-    # 确保目录存在
+    # 确保ip和vv目录存在
     os.makedirs('ip', exist_ok=True)
     os.makedirs('vv', exist_ok=True)
-    os.makedirs('template', exist_ok=True)
     
     for config_file in glob.glob(os.path.join('ip', '*_config.txt')):
         multicast_province(config_file)

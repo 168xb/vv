@@ -16,27 +16,21 @@ def read_config(config_file):
                     parts = line.strip().split(',')
                     ip_part, port = parts[0].strip().split(':')
                     a, b, c, d = ip_part.split('.')
-                    option = int(parts[1]) 
-                    url_end = "/status" if option >= 10 else "/stat"
-                    ip = f"{a}.{b}.{c}.1" if option % 2 == 0 else f"{a}.{b}.1.1"
+                    if int(parts[1]) == 0:
+                        ip, option, url_end = f"{a}.{b}.{c}.1", 0, "/stat"
+                    elif int(parts[1]) == 1:
+                        ip, option, url_end = f"{a}.{b}.1.1", 1, "/stat"
+                    elif int(parts[1]) == 2:
+                        ip, option, url_end = f"{a}.{b}.{c}.1", 0, "/status"
+                    elif int(parts[1]) == 3:
+                        ip, option, url_end = f"{a}.{b}.1.1", 1, "/status"
                     ip_configs.append((ip, port, option, url_end))
                     print(f"第{line_num}行：http://{ip}:{port}{url_end}添加到扫描列表")
         return ip_configs
     except Exception as e:
         print(f"读取文件错误: {e}")
+        return None
 
-def generate_ip_ports(ip, port, option):
-    a, b, c, d = ip.split('.')
-    if option == 2 or option == 12:
-        c_extent = c.split('-')
-        c_first = int(c_extent[0]) if len(c_extent) == 2 else int(c)
-        c_last = int(c_extent[1]) + 1 if len(c_extent) == 2 else int(c) + 8
-        return [f"{a}.{b}.{x}.{y}:{port}" for x in range(c_first, c_last) for y in range(1, 256)]
-    elif option == 0 or option == 10:
-        return [f"{a}.{b}.{c}.{y}:{port}" for y in range(1, 256)]
-    else:
-        return [f"{a}.{b}.{x}.{y}:{port}" for x in range(256) for y in range(1, 256)]
-        
 def check_ip_port(ip_port, url_end):    
     try:
         url = f"http://{ip_port}{url_end}"
@@ -50,16 +44,18 @@ def check_ip_port(ip_port, url_end):
 
 def scan_ip_port(ip, port, option, url_end):
     def show_progress():
-        while checked[0] < len(ip_ports) and option % 2 == 1:
+        while checked[0] < len(ip_ports) and option == 1:
             print(f"已扫描：{checked[0]}/{len(ip_ports)}, 有效ip_port：{len(valid_ip_ports)}个")
             time.sleep(30)
     
     valid_ip_ports = []
-    ip_ports = generate_ip_ports(ip, port, option)
+    a, b, c, d = map(int, ip.split('.'))
+    ip_ports = [f"{a}.{b}.{x}.{y}:{port}" for x in range(256) for y in range(1,256)] if option == 1 \
+               else [f"{a}.{b}.{c}.{x}:{port}" for x in range(1,256)]
     checked = [0]
     Thread(target=show_progress, daemon=True).start()
     
-    with ThreadPoolExecutor(max_workers = 300 if option % 2 == 1 else 100) as executor:
+    with ThreadPoolExecutor(max_workers=300 if option == 1 else 50) as executor:
         futures = {executor.submit(check_ip_port, ip_port, url_end): ip_port for ip_port in ip_ports}
         for future in as_completed(futures):
             result = future.result()
@@ -127,7 +123,7 @@ def multicast_province(config_file):
                 for line_num, line in enumerate(f, 1):
                     ip = line.strip()
                     output.append(f"{province}-组播{line_num},#genre#\n")
-                    output.append(tem_channels.replace("ipipip", f"{ip}"))
+                    output.extend(tem_channels.replace("ipipip", f"{ip}"))
             
             # 将组播文件写入vv目录
             with open(f"vv/zubo_{province}.txt", 'w', encoding='utf-8') as f:
@@ -136,21 +132,6 @@ def multicast_province(config_file):
             print(f"缺少模板文件: {template_file}")
     else:
         print(f"\n{province} 扫描完成，未扫描到有效ip_port")
-
-def txt_to_m3u(input_file, output_file):
-    with open(input_file, 'r', encoding='utf-8') as f:
-        lines = f.readlines()
-    with open(output_file, 'w', encoding='utf-8') as f:
-        genre = ''
-        for line in lines:
-            line = line.strip()
-            if "," in line:
-                channel_name, channel_url = line.split(',', 1)
-                if channel_url == '#genre#':
-                    genre = channel_name
-                else:
-                    f.write(f'#EXTINF:-1 group-title="{genre}",{channel_name}\n')
-                    f.write(f'{channel_url}\n')
 
 def main():
     # 确保ip和vv目录存在
@@ -174,9 +155,6 @@ def main():
         f.write(f"{current_time}更新,#genre#\n")
         f.write(f"浙江卫视,http://ali-m-l.cztv.com/channels/lantian/channel001/1080p.m3u8\n")
         f.write('\n'.join(file_contents))
-    
-    # 转换为M3U格式
-    txt_to_m3u("vv/zubo_all.txt", "vv/zubo_all.m3u")
     
     print(f"组播地址获取完成，结果已保存到vv目录")
 
